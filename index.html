@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>手勢控制接球遊戲 - WebGL 互動版</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            width: 100vw; height: 100vh; overflow: hidden;
+            background: #1a1a2e; font-family: 'PingFang TC', sans-serif;
+            color: white; touch-action: none;
+        }
+        #container { position: relative; width: 100%; height: 100%; }
+        #gameCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        #videoCanvas {
+            position: absolute; top: 10px; right: 10px;
+            width: 200px; height: 150px;
+            border: 2px solid #4ecdc4; border-radius: 10px;
+            z-index: 10; transform: scaleX(-1); /* 鏡像顯示 */
+        }
+        #input_video { display: none; }
+        .ui-panel {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(0,0,0,0.6); padding: 15px;
+            border-radius: 10px; backdrop-filter: blur(5px);
+            z-index: 20; font-size: 20px; border-left: 5px solid #4ecdc4;
+        }
+        .setup-screen {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(10, 10, 30, 0.95); padding: 40px;
+            border-radius: 20px; text-align: center;
+            z-index: 100; border: 1px solid #4ecdc4;
+        }
+        .item-config { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 20px 0; }
+        .item-type { background: rgba(255,255,255,0.1); padding: 10px; border-radius: 10px; }
+        .item-preview { width: 50px; height: 50px; border-radius: 50%; margin: 8px auto; display: flex; align-items: center; justify-content: center; font-size: 24px; background-size: cover; }
+        .upload-btn { padding: 5px 10px; background: #4ecdc4; border: none; border-radius: 5px; color: white; cursor: pointer; font-size: 12px; }
+        .start-button { padding: 15px 40px; font-size: 22px; background: linear-gradient(45deg, #4ecdc4, #5562ff); border: none; border-radius: 30px; color: white; cursor: pointer; font-weight: bold; margin-top: 20px; }
+        .game-over {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; background: rgba(0,0,0,0.9); padding: 40px;
+            border-radius: 20px; z-index: 200; display: none; border: 2px solid #ff6b6b;
+        }
+        .hand-indicator { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 30px; z-index: 10; }
+        .hand-dot { width: 20px; height: 20px; border-radius: 50%; background: rgba(255,255,255,0.2); transition: 0.3s; }
+        .hand-dot.active { background: #4ecdc4; box-shadow: 0 0 15px #4ecdc4; }
+        .status-message { position: absolute; top: 70%; left: 50%; transform: translateX(-50%); background: #ff6b6b; padding: 10px 20px; border-radius: 5px; z-index: 300; display: none; }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <video id="input_video" playsinline></video>
+        <canvas id="gameCanvas"></canvas>
+        <canvas id="videoCanvas" width="200" height="150"></canvas>
+        
+        <div class="ui-panel">
+            <div>分數: <span id="score">0</span></div>
+            <div>時間: <span id="timeRemaining">02:00</span></div>
+        </div>
+
+        <div id="statusMessage" class="status-message"></div>
+
+        <div id="setupScreen" class="setup-screen">
+            <h2>🖐️ 手勢感應接球</h2>
+            <p>請確保環境光線充足並允許攝像頭權限</p>
+            <div class="item-config">
+                <div class="item-type"><h4>好球</h4><div id="preview1" class="item-preview">🎾</div><button class="upload-btn" onclick="document.getElementById('file1').click()">換圖</button><input type="file" id="file1" hidden accept="image/*"></div>
+                <div class="item-type"><h4>加分</h4><div id="preview2" class="item-preview">⭐</div><button class="upload-btn" onclick="document.getElementById('file2').click()">換圖</button><input type="file" id="file2" hidden accept="image/*"></div>
+                <div class="item-type"><h4>扣分</h4><div id="preview3" class="item-preview">💣</div><button class="upload-btn" onclick="document.getElementById('file3').click()">換圖</button><input type="file" id="file3" hidden accept="image/*"></div>
+                <div class="item-type"><h4>危險</h4><div id="preview4" class="item-preview">☠️</div><button class="upload-btn" onclick="document.getElementById('file4').click()">換圖</button><input type="file" id="file4" hidden accept="image/*"></div>
+            </div>
+            <button id="startBtn" class="start-button">載入感應器中...</button>
+        </div>
+
+        <div id="gameOver" class="game-over">
+            <h2>遊戲結束</h2>
+            <p id="finalScoreDisplay" style="font-size: 32px; margin: 20px 0;">最終分數: 0</p>
+            <button class="start-button" onclick="location.reload()">再玩一次</button>
+        </div>
+
+        <div class="hand-indicator">
+            <div style="text-align:center"><div id="leftHandDot" class="hand-dot"></div>左手</div>
+            <div style="text-align:center"><div id="rightHandDot" class="hand-dot"></div>右手</div>
+        </div>
+    </div>
+
+    <script>
+        class HandGestureGame {
+            constructor() {
+                this.video = document.getElementById('input_video');
+                this.canvas = document.getElementById('gameCanvas');
+                this.vCanvas = document.getElementById('videoCanvas');
+                this.vCtx = this.vCanvas.getContext('2d');
+                
+                this.score = 0;
+                this.gameState = 'init';
+                this.items = [];
+                this.textures = { type1: null, type2: null, type3: null, type4: null };
+                
+                this.leftHand = { x: 0, y: 0, active: false };
+                this.rightHand = { x: 0, y: 0, active: false };
+
+                this.initThree();
+                this.initMediaPipe();
+                this.setupUploads();
+            }
+
+            initThree() {
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.camera.position.z = 12;
+
+                const light = new THREE.DirectionalLight(0xffffff, 1);
+                light.position.set(0, 5, 10);
+                this.scene.add(light);
+                this.scene.add(new THREE.AmbientLight(0x404040));
+
+                // 手部感應點
+                this.lMarker = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({color: 0x4ecdc4}));
+                this.rMarker = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({color: 0xffd93d}));
+                this.scene.add(this.lMarker, this.rMarker);
+                this.lMarker.visible = this.rMarker.visible = false;
+
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+
+            async initMediaPipe() {
+                const hands = new Hands({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                });
+
+                hands.setOptions({
+                    maxNumHands: 2,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.6,
+                    minTrackingConfidence: 0.6
+                });
+
+                hands.onResults((res) => this.processResults(res));
+
+                const camera = new Camera(this.video, {
+                    onFrame: async () => {
+                        await hands.send({image: this.video});
+                        this.vCtx.drawImage(this.video, 0, 0, this.vCanvas.width, this.vCanvas.height);
+                    },
+                    width: 640, height: 480
+                });
+
+                try {
+                    await camera.start();
+                    document.getElementById('startBtn').textContent = "開始遊戲";
+                    document.getElementById('startBtn').onclick = () => this.startGame();
+                } catch (e) {
+                    this.showError("無法開啟攝像頭，請確認權限");
+                }
+            }
+
+            processResults(res) {
+                this.leftHand.active = this.rightHand.active = false;
+                this.lMarker.visible = this.rMarker.visible = false;
+
+                if (res.multiHandLandmarks && res.multiHandedness) {
+                    res.multiHandLandmarks.forEach((lm, index) => {
+                        const isRight = res.multiHandedness[index].label === 'Right'; // MediaPipe 左右相反
+                        const target = isRight ? this.leftHand : this.rightHand;
+                        const marker = isRight ? this.lMarker : this.rMarker;
+
+                        // 座標轉換: 0~1 -> 3D 空間
+                        target.x = (lm[9].x - 0.5) * -24; // 反轉 X 軸以符合直覺
+                        target.y = (lm[9].y - 0.5) * -18;
+                        target.active = true;
+
+                        marker.position.set(target.x, target.y, 0);
+                        marker.visible = true;
+                    });
+                }
+                document.getElementById('leftHandDot').className = `hand-dot ${this.leftHand.active?'active':''}`;
+                document.getElementById('rightHandDot').className = `hand-dot ${this.rightHand.active?'active':''}`;
+            }
+
+            setupUploads() {
+                [1,2,3,4].forEach(i => {
+                    document.getElementById(`file${i}`).onchange = (e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                            const url = URL.createObjectURL(file);
+                            this.textures[`type${i}`] = new THREE.TextureLoader().load(url);
+                            document.getElementById(`preview${i}`).style.backgroundImage = `url(${url})`;
+                            document.getElementById(`preview${i}`).textContent = '';
+                        }
+                    };
+                });
+            }
+
+            startGame() {
+                this.gameState = 'playing';
+                this.score = 0;
+                this.timeLeft = 120;
+                document.getElementById('setupScreen').style.display = 'none';
+                this.spawnItem();
+                this.gameLoop();
+                
+                this.timer = setInterval(() => {
+                    this.timeLeft--;
+                    const min = Math.floor(this.timeLeft/60).toString().padStart(2,'0');
+                    const sec = (this.timeLeft%60).toString().padStart(2,'0');
+                    document.getElementById('timeRemaining').textContent = `${min}:${sec}`;
+                    if(this.timeLeft <= 0) this.endGame();
+                }, 1000);
+            }
+
+            spawnItem() {
+                if (this.gameState !== 'playing') return;
+
+                const typeIdx = Math.floor(Math.random() * 4) + 1;
+                const config = [
+                    {s:10, c:0x4ecdc4}, {s:20, c:0xffd93d}, 
+                    {s:-10, c:0xff6b6b}, {s:-50, c:0xff0000}
+                ][typeIdx-1];
+
+                let mat;
+                if (this.textures[`type${typeIdx}`]) {
+                    mat = new THREE.MeshBasicMaterial({ map: this.textures[`type${typeIdx}`], transparent: true });
+                } else {
+                    mat = new THREE.MeshPhongMaterial({ color: config.c, emissive: config.c, emissiveIntensity: 0.5 });
+                }
+
+                const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.7, 32, 32), mat);
+                mesh.position.set((Math.random()-0.5)*20, 10, 0);
+                
+                this.scene.add(mesh);
+                this.items.push({ mesh, score: config.s });
+
+                setTimeout(() => this.spawnItem(), 800 - (this.score / 10));
+            }
+
+            gameLoop() {
+                if (this.gameState !== 'playing') return;
+                requestAnimationFrame(() => this.gameLoop());
+
+                for (let i = this.items.length - 1; i >= 0; i--) {
+                    const item = this.items[i];
+                    item.mesh.position.y -= 0.12;
+                    item.mesh.rotation.x += 0.02;
+
+                    // 碰撞偵測
+                    [this.leftHand, this.rightHand].forEach(h => {
+                        if (h.active) {
+                            const dx = item.mesh.position.x - h.x;
+                            const dy = item.mesh.position.y - h.y;
+                            if (Math.sqrt(dx*dx + dy*dy) < 1.5) {
+                                this.score += item.score;
+                                document.getElementById('score').textContent = this.score;
+                                this.removeItem(i);
+                            }
+                        }
+                    });
+
+                    if (item.mesh.position.y < -12) this.removeItem(i);
+                }
+                this.renderer.render(this.scene, this.camera);
+            }
+
+            removeItem(idx) {
+                this.scene.remove(this.items[idx].mesh);
+                this.items.splice(idx, 1);
+            }
+
+            endGame() {
+                this.gameState = 'over';
+                clearInterval(this.timer);
+                document.getElementById('gameOver').style.display = 'block';
+                document.getElementById('finalScoreDisplay').textContent = `最終分數: ${this.score}`;
+            }
+
+            showError(msg) {
+                const el = document.getElementById('statusMessage');
+                el.textContent = msg;
+                el.style.display = 'block';
+            }
+        }
+
+        window.onload = () => new HandGestureGame();
+    </script>
+</body>
+</html>

@@ -122,54 +122,9 @@
                 this.scene.add(light);
                 this.scene.add(new THREE.AmbientLight(0x404040));
 
-                // 手部感應圖示（使用 Sprite 與 CanvasTexture，顯示小手掌）
-                const createHandSprite = (hexColor) => {
-                    const c = document.createElement('canvas');
-                    c.width = 128; c.height = 128;
-                    const ctx = c.getContext('2d');
-                    ctx.clearRect(0,0,c.width,c.height);
-
-                    // 簡單手掌輪廓（掌心 + 四指 + 拇指）
-                    ctx.fillStyle = hexColor;
-
-                    // fingers
-                    const fingerWidth = 14, fingerHeight = 36;
-                    const fingerYs = 28;
-                    const startX = 32;
-                    for (let i = 0; i < 4; i++) {
-                        const x = startX + i * 22;
-                        ctx.beginPath();
-                        ctx.moveTo(x, fingerYs + fingerHeight);
-                        ctx.lineTo(x + fingerWidth, fingerYs + fingerHeight);
-                        ctx.lineTo(x + fingerWidth, fingerYs);
-                        ctx.lineTo(x, fingerYs);
-                        ctx.closePath();
-                        ctx.fill();
-                    }
-
-                    // palm
-                    ctx.beginPath();
-                    ctx.arc(72, 86, 30, 0, Math.PI * 2);
-                    ctx.fill();
-
-                    // thumb
-                    ctx.save();
-                    ctx.translate(46, 94);
-                    ctx.rotate(-0.6);
-                    ctx.fillRect(0, -8, 18, 28);
-                    ctx.restore();
-
-                    const tex = new THREE.CanvasTexture(c);
-                    tex.needsUpdate = true;
-                    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
-                    const spr = new THREE.Sprite(mat);
-                    spr.scale.set(2.6, 2.6, 1);
-                    return spr;
-                };
-
-                // 左右手皆使用藍色手掌（可依需求修改顏色）
-                this.lMarker = createHandSprite('#4ecdc4');
-                this.rMarker = createHandSprite('#4ecdc4');
+                // 手部感應點
+                this.lMarker = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({color: 0x4ecdc4}));
+                this.rMarker = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({color: 0xffd93d}));
                 this.scene.add(this.lMarker, this.rMarker);
                 this.lMarker.visible = this.rMarker.visible = false;
 

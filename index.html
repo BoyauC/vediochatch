@@ -105,6 +105,12 @@
                 this.leftHand = { x: 0, y: 0, active: false };
                 this.rightHand = { x: 0, y: 0, active: false };
 
+                // Audio context 與前一幀手部狀態（用於播放音效的 edge detection）
+                this.audioCtx = null;
+                try { this.audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { }
+                this.prevLeftActive = false;
+                this.prevRightActive = false;
+
                 this.initThree();
                 this.initMediaPipe();
                 this.setupUploads();
@@ -167,9 +173,9 @@
                     return spr;
                 };
 
-                // 左右手皆使用藍色手掌（可依需求修改顏色）
+                // 左右手使用不同顏色手掌（左手：藍 / 右手：黃）
                 this.lMarker = createHandSprite('#4ecdc4');
-                this.rMarker = createHandSprite('#4ecdc4');
+                this.rMarker = createHandSprite('#ffd93d');
                 this.scene.add(this.lMarker, this.rMarker);
                 this.lMarker.visible = this.rMarker.visible = false;
 
@@ -230,8 +236,15 @@
                         marker.visible = true;
                     });
                 }
+                // 播放手部出現的短音（偵測從未出現到出現的 edge）
+                if (this.leftHand.active && !this.prevLeftActive) this.playTone(880, 0.08, 'sine', 0.08);
+                if (this.rightHand.active && !this.prevRightActive) this.playTone(660, 0.08, 'sine', 0.08);
+
                 document.getElementById('leftHandDot').className = `hand-dot ${this.leftHand.active?'active':''}`;
                 document.getElementById('rightHandDot').className = `hand-dot ${this.rightHand.active?'active':''}`;
+
+                this.prevLeftActive = this.leftHand.active;
+                this.prevRightActive = this.rightHand.active;
             }
 
             setupUploads() {
@@ -307,6 +320,9 @@
                             if (Math.sqrt(dx*dx + dy*dy) < 1.5) {
                                 this.score += item.score;
                                 document.getElementById('score').textContent = this.score;
+                                // 播放接球音效：根據分數正負改變頻率與長度
+                                if (item.score > 0) this.playTone(1200, 0.06, 'sine', 0.09);
+                                else this.playTone(240, 0.12, 'sawtooth', 0.12);
                                 this.removeItem(i);
                             }
                         }
@@ -333,6 +349,23 @@
                 const el = document.getElementById('statusMessage');
                 el.textContent = msg;
                 el.style.display = 'block';
+            }
+
+            playTone(freq = 440, duration = 0.05, type = 'sine', volume = 0.1) {
+                if (!this.audioCtx) return;
+                try {
+                    const now = this.audioCtx.currentTime;
+                    const o = this.audioCtx.createOscillator();
+                    const g = this.audioCtx.createGain();
+                    o.type = type;
+                    o.frequency.setValueAtTime(freq, now);
+                    g.gain.setValueAtTime(volume, now);
+                    o.connect(g);
+                    g.connect(this.audioCtx.destination);
+                    o.start(now);
+                    g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+                    o.stop(now + duration + 0.02);
+                } catch (e) { }
             }
         }
 
